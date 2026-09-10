@@ -110,7 +110,7 @@ async function renderLista() {
       <div class="link-action" id="btn-limpar-filtros" style="color:#8bb0ff;">Limpar</div>
     </div>
     <div style="display:flex; flex-direction:column; gap:10px; margin-top:10px;">
-      <input id="f-busca" placeholder="Buscar por nome ou marca...">
+      <input id="f-busca" placeholder="Buscar por nome, marca ou cód. fabricante...">
       <input id="f-caixa" placeholder="Nº Caixa">
       ${selectHtml('f-tipo', 'Tipo de sensor', state.tiposSensores)}
     </div>
