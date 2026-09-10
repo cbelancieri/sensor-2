@@ -74,7 +74,7 @@ const Api = {
     }
 
     if (filtros.busca) {
-      query = query.or(`nome.ilike.%${filtros.busca}%,marca.ilike.%${filtros.busca}%`);
+      query = query.or(`nome.ilike.%${filtros.busca}%,marca.ilike.%${filtros.busca}%,cod_fabricante.ilike.%${filtros.busca}%`);
     }
 
     const linhas = await checarErro(query, 'Erro ao buscar sensores');
