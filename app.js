@@ -882,7 +882,7 @@ async function renderMovimentacao() {
         <div><span class="field-label">Sensor</span>
           <select id="mv-sensor" style="width:100%;">
             <option value="">Selecione...</option>
-            ${sensores.map(s => `<option value="${s.Id}">${s.Nome} (estoque: ${s.Estoque})</option>`).join('')}
+            ${sensores.map(s => `<option value="${s.Id}">${s.Caixa ? `Caixa ${s.Caixa} - ` : ''}${s.Nome} (estoque: ${s.Estoque})</option>`).join('')}
           </select>
         </div>
         <div><span class="field-label">Quantidade</span><input id="mv-qtd" type="number" value="1" min="1"></div>
