@@ -941,7 +941,10 @@ async function renderMovimentacao() {
     maquinaSelect.innerHTML = `<option value="">Selecione...</option>${(linha?.Maquinas || []).map(m => `<option value="${m.Id}">${m.Nome}</option>`).join('')}`;
   });
 
-  document.getElementById('btn-registrar').addEventListener('click', async () => {
+  const btnRegistrar = document.getElementById('btn-registrar');
+  btnRegistrar.addEventListener('click', async () => {
+    if (btnRegistrar.disabled) return; // evita duplo-clique disparar a movimentação duas vezes
+
     const sensorId = document.getElementById('mv-sensor').value;
     const cracha = document.getElementById('mv-cracha').value;
     const qtd = document.getElementById('mv-qtd').value;
@@ -950,6 +953,10 @@ async function renderMovimentacao() {
       showError('Selecione o sensor e informe o crachá.');
       return;
     }
+
+    const textoOriginalBtn = btnRegistrar.textContent;
+    btnRegistrar.disabled = true;
+    btnRegistrar.textContent = 'Registrando...';
 
     try {
       const resultado = await Api.registrarMovimentacao({
@@ -965,6 +972,8 @@ async function renderMovimentacao() {
       render();
     } catch (err) {
       showError(err.message);
+      btnRegistrar.disabled = false;
+      btnRegistrar.textContent = textoOriginalBtn;
     }
   });
 }
