@@ -65,6 +65,7 @@ async function render() {
     else if (state.page === 'movimentacao') await renderMovimentacao();
     else if (state.page === 'estrutura') await renderEstrutura();
     else if (state.page === 'dashboard') await renderDashboard();
+    else if (state.page === 'compras') await renderCompras();
   } catch (err) {
     showError(err.message);
     content.innerHTML = `<div class="empty-state">Não foi possível carregar os dados. Verifique a conexão com o Supabase.</div>`;
@@ -1107,6 +1108,48 @@ async function renderDashboard() {
       </table>`}
     </div>
   `;
+}
+
+
+async function renderCompras() {
+  const dados = await Api.listarCompras();
+  if (state.page !== 'compras') return;
+  const { itens, inicio, fim, dias } = dados;
+  const esc = valor => String(valor ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const data = valor => new Date(valor).toLocaleDateString('pt-BR');
+  const content = document.getElementById('page-content');
+  content.innerHTML = `
+    <div class="page-header">
+      <div><h1 class="page-title">Lista de compra</h1>
+        <div class="page-subtitle">${itens.length} item(ns) com estoque zero · histórico: ${data(inicio)} a ${data(fim)}</div></div>
+      <button type="button" class="btn-secondary" id="btn-atualizar-compras">Atualizar lista</button>
+    </div>
+    <div class="card">
+      <div class="page-subtitle">Entrega: 15 dias · revisão: 30 dias · cobertura: 45 dias.<br>
+      Sugestão = saídas no período ÷ ${dias.toFixed(1)} dias × 45, arredondada para cima.<br>
+      Sem reserva de segurança e sem desconto de pedidos pendentes. Histórico incompleto e períodos sem estoque podem subestimar a necessidade.</div>
+    </div>
+    <div class="card" style="padding:0; overflow:auto;">
+      ${!itens.length ? '<div class="empty-state">Nenhum sensor com estoque zero.</div>' : `
+      <table><thead><tr><th>Prioridade</th><th>Caixa</th><th>Nome</th><th>Cód. fabricante</th><th>Cód. DV</th><th>Marca</th><th>Estoque</th><th>Saídas em 3 meses</th><th>Quantidade sugerida</th><th>Quantidade a comprar</th><th>Última saída no período</th></tr></thead>
+      <tbody>${itens.map((s, i) => `<tr>
+        <td>${i + 1}</td><td>${esc(s.Caixa || '—')}</td><td>${esc(s.Nome)}</td><td>${esc(s.CodFabricante || '—')}</td>
+        <td>${esc(s.CodDV || '—')}</td><td>${esc(s.Marca || '—')}</td><td><span class="badge badge-warning">0</span></td>
+        <td>${s.TotalSaidas}</td><td>${s.QuantidadeSugerida ?? 'Revisar'}</td>
+        <td><input type="number" min="0" step="1" value="${s.QuantidadeSugerida ?? ''}" placeholder="Revisar" aria-label="Quantidade a comprar para ${esc(s.Nome)}" style="width:100px;" data-compra-id="${esc(s.Id)}"></td>
+        <td>${s.UltimaSaida ? data(s.UltimaSaida) : 'Sem saída registrada'}</td>
+      </tr>`).join('')}</tbody></table>`}
+    </div>
+    <div class="page-subtitle">Prioridade pelo total de peças de saída no período; desempate pelo número da caixa. Quantidades editadas são temporárias e serão descartadas ao atualizar ou sair desta tela. Pesquisa de preços ainda não implementada.</div>`;
+  document.getElementById('btn-atualizar-compras').addEventListener('click', () => render());
+  content.querySelectorAll('[data-compra-id]').forEach(input => input.addEventListener('change', () => {
+    if (input.value === '') return;
+    const quantidade = Number(input.value);
+    if (!Number.isSafeInteger(quantidade) || quantidade < 0) {
+      input.value = '';
+      showError('Informe uma quantidade inteira igual ou maior que zero.');
+    }
+  }));
 }
 
 // ============================================================

@@ -316,6 +316,49 @@ const Api = {
     return { mensagem: 'Movimentação registrada com sucesso', novoEstoque: sensorAtualizado.estoque };
   },
 
+  async listarCompras() {
+    const fim = new Date();
+    const inicio = new Date(fim);
+    const dia = inicio.getDate();
+    inicio.setDate(1);
+    inicio.setMonth(inicio.getMonth() - 3);
+    const ultimoDia = new Date(inicio.getFullYear(), inicio.getMonth() + 1, 0).getDate();
+    inicio.setDate(Math.min(dia, ultimoDia));
+    const dias = Math.max(1, (fim - inicio) / 86400000);
+    const paginar = async (criarQuery) => {
+      const resultado = [];
+      for (let offset = 0; ; offset += 500) {
+        const pagina = await checarErro(criarQuery().range(offset, offset + 499), 'Erro ao gerar lista de compra');
+        resultado.push(...pagina);
+        if (pagina.length < 500) break;
+      }
+      return resultado;
+    };
+    const sensores = await paginar(() => supabaseClient.from('sensores')
+      .select('id, caixa, nome, cod_fabricante, cod_dv, marca, estoque').eq('estoque', 0).order('id'));
+    const ids = new Set(sensores.map(s => String(s.id)));
+    const totais = new Map();
+    if (sensores.length) {
+      const saidas = await paginar(() => supabaseClient.from('movimentacoes')
+        .select('id, sensor_id, quantidade, data_hora').eq('tipo', 'saida')
+        .gte('data_hora', inicio.toISOString()).lte('data_hora', fim.toISOString()).order('id'));
+      for (const m of saidas) {
+        const id = String(m.sensor_id);
+        if (!ids.has(id)) continue;
+        const resumo = totais.get(id) || { total: 0, ultima: null };
+        resumo.total += Math.max(0, Number(m.quantidade) || 0);
+        if (m.data_hora && (!resumo.ultima || m.data_hora > resumo.ultima)) resumo.ultima = m.data_hora;
+        totais.set(id, resumo);
+      }
+    }
+    const itens = sensores.map(s => {
+      const resumo = totais.get(String(s.id)) || { total: 0, ultima: null };
+      return { ...paraPascal(s), TotalSaidas: resumo.total, UltimaSaida: resumo.ultima,
+        QuantidadeSugerida: resumo.total > 0 ? Math.ceil(resumo.total / dias * 45) : null };
+    }).sort((a, b) => b.TotalSaidas - a.TotalSaidas || String(a.Caixa || '').localeCompare(String(b.Caixa || ''), 'pt-BR', { numeric: true }) || String(a.Id).localeCompare(String(b.Id)));
+    return { itens, inicio: inicio.toISOString(), fim: fim.toISOString(), dias };
+  },
+
   // ---------- KPIs / Dashboard ----------
   async buscarKpis() {
     const sensores = await checarErro(supabaseClient.from('sensores').select('tipo, estoque'), 'Erro ao buscar KPIs');
