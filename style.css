@@ -176,3 +176,6 @@ tbody tr:hover { background: #fafafa; }
   background: #fdeaea; color: #a12727; padding: 10px 14px; border-radius: 6px;
   font-size: 13px; margin-bottom: 16px;
 }
+.error-banner.banner-success {
+  background: #e6f7ec; color: #1f8a4c;
+}

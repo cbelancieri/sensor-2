@@ -274,17 +274,52 @@ const Api = {
   },
 
   async registrarMovimentacao(dados) {
+    const quantidade = parseInt(dados.Quantidade) || 1;
+    const tipo = dados.Tipo;
+
+    if (quantidade <= 0) {
+      throw new Error('Informe uma quantidade válida (maior que zero).');
+    }
+
+    // Busca o estoque atual do sensor pra calcular o novo valor e validar a saída
+    const sensorAtual = await checarErro(
+      supabaseClient.from('sensores').select('estoque').eq('id', dados.SensorId).single(),
+      'Sensor não encontrado'
+    );
+    const estoqueAtual = sensorAtual.estoque || 0;
+
+    if (tipo === 'saida' && quantidade > estoqueAtual) {
+      throw new Error(`Estoque insuficiente. Disponível: ${estoqueAtual}, solicitado: ${quantidade}.`);
+    }
+
+    const novoEstoque = tipo === 'entrada' ? estoqueAtual + quantidade : estoqueAtual - quantidade;
+
+    // Atualiza o estoque primeiro; só registra o histórico se a atualização der certo
+    // (evita gravar uma movimentação "fantasma" que não reflete no estoque real)
+    await checarErro(
+      supabaseClient.from('sensores').update({ estoque: novoEstoque, atualizado_em: new Date().toISOString() }).eq('id', dados.SensorId),
+      'Erro ao atualizar estoque do sensor'
+    );
+
     const linha = {
       sensor_id: dados.SensorId,
-      tipo: dados.Tipo,
-      quantidade: parseInt(dados.Quantidade) || 1,
+      tipo: tipo,
+      quantidade: quantidade,
       cracha: dados.Cracha,
       setor_id: dados.SetorId || null,
       linha_id: dados.LinhaId || null,
       maquina_id: dados.MaquinaId || null
     };
-    await checarErro(supabaseClient.from('movimentacoes').insert(linha), 'Erro ao registrar movimentação');
-    return { mensagem: 'Movimentação registrada com sucesso' };
+
+    try {
+      await checarErro(supabaseClient.from('movimentacoes').insert(linha), 'Erro ao registrar movimentação');
+    } catch (err) {
+      // Reverte o estoque se o registro do histórico falhar, pra não ficar inconsistente
+      await supabaseClient.from('sensores').update({ estoque: estoqueAtual }).eq('id', dados.SensorId);
+      throw err;
+    }
+
+    return { mensagem: 'Movimentação registrada com sucesso', novoEstoque };
   },
 
   // ---------- KPIs / Dashboard ----------

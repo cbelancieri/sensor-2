@@ -19,8 +19,16 @@ const state = {
 function showError(msg) {
   const el = document.getElementById('error-banner');
   el.textContent = msg;
-  el.classList.remove('hidden');
+  el.classList.remove('hidden', 'banner-success');
   setTimeout(() => el.classList.add('hidden'), 6000);
+}
+
+function showSuccess(msg) {
+  const el = document.getElementById('error-banner');
+  el.textContent = msg;
+  el.classList.remove('hidden');
+  el.classList.add('banner-success');
+  setTimeout(() => { el.classList.add('hidden'); el.classList.remove('banner-success'); }, 4000);
 }
 
 // Carrega os tipos de sensores do banco (com fallback pra lista padrão
@@ -944,7 +952,7 @@ async function renderMovimentacao() {
     }
 
     try {
-      await Api.registrarMovimentacao({
+      const resultado = await Api.registrarMovimentacao({
         SensorId: sensorId,
         Tipo: tipoMov,
         Quantidade: qtd,
@@ -953,6 +961,7 @@ async function renderMovimentacao() {
         LinhaId: tipoMov === 'saida' ? linhaSelect.value : null,
         MaquinaId: tipoMov === 'saida' ? maquinaSelect.value : null
       });
+      showSuccess(`Movimentação registrada! Novo estoque: ${resultado.novoEstoque}.`);
       render();
     } catch (err) {
       showError(err.message);
