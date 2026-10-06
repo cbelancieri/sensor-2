@@ -1121,7 +1121,7 @@ async function renderCompras() {
   content.innerHTML = `
     <div class="page-header">
       <div><h1 class="page-title">Lista de compra</h1>
-        <div class="page-subtitle">${itens.length} item(ns) com estoque zero · histórico: ${data(inicio)} a ${data(fim)}</div></div>
+        <div class="page-subtitle">${itens.length} item(ns) com estoque zero e movimentação registrada · histórico: ${data(inicio)} a ${data(fim)}</div></div>
       <button type="button" class="btn-secondary" id="btn-atualizar-compras">Atualizar lista</button>
     </div>
     <div class="card">
@@ -1130,7 +1130,7 @@ async function renderCompras() {
       Sem reserva de segurança e sem desconto de pedidos pendentes. Histórico incompleto e períodos sem estoque podem subestimar a necessidade.</div>
     </div>
     <div class="card" style="padding:0; overflow:auto;">
-      ${!itens.length ? '<div class="empty-state">Nenhum sensor com estoque zero.</div>' : `
+      ${!itens.length ? '<div class="empty-state">Nenhum sensor com estoque zero e movimentação registrada.</div>' : `
       <table><thead><tr><th>Prioridade</th><th>Caixa</th><th>Nome</th><th>Cód. fabricante</th><th>Cód. DV</th><th>Marca</th><th>Estoque</th><th>Saídas em 3 meses</th><th>Quantidade sugerida</th><th>Quantidade a comprar</th><th>Última saída no período</th></tr></thead>
       <tbody>${itens.map((s, i) => `<tr>
         <td>${i + 1}</td><td>${esc(s.Caixa || '—')}</td><td>${esc(s.Nome)}</td><td>${esc(s.CodFabricante || '—')}</td>
@@ -1140,7 +1140,7 @@ async function renderCompras() {
         <td>${s.UltimaSaida ? data(s.UltimaSaida) : 'Sem saída registrada'}</td>
       </tr>`).join('')}</tbody></table>`}
     </div>
-    <div class="page-subtitle">Prioridade pelo total de peças de saída no período; desempate pelo número da caixa. Quantidades editadas são temporárias e serão descartadas ao atualizar ou sair desta tela. Pesquisa de preços ainda não implementada.</div>`;
+    <div class="page-subtitle">Apenas itens com alguma entrada ou saída registrada em todo o histórico. Prioridade pelo total de peças de saída no período; desempate pelo número da caixa. Quantidades editadas são temporárias e serão descartadas ao atualizar ou sair desta tela. Pesquisa de preços ainda não implementada.</div>`;
   document.getElementById('btn-atualizar-compras').addEventListener('click', () => render());
   content.querySelectorAll('[data-compra-id]').forEach(input => input.addEventListener('change', () => {
     if (input.value === '') return;

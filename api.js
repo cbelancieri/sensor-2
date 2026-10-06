@@ -338,7 +338,16 @@ const Api = {
       .select('id, caixa, nome, cod_fabricante, cod_dv, marca, estoque').eq('estoque', 0).order('id'));
     const ids = new Set(sensores.map(s => String(s.id)));
     const totais = new Map();
+    const comMovimentacao = new Set();
     if (sensores.length) {
+      // Elegibilidade usa todo o histórico; consumo continua limitado a três meses.
+      const historico = await paginar(() => supabaseClient.from('movimentacoes')
+        .select('id, sensor_id').in('tipo', ['entrada', 'saida'])
+        .lte('data_hora', fim.toISOString()).order('id'));
+      for (const m of historico) {
+        const id = String(m.sensor_id);
+        if (ids.has(id)) comMovimentacao.add(id);
+      }
       const saidas = await paginar(() => supabaseClient.from('movimentacoes')
         .select('id, sensor_id, quantidade, data_hora').eq('tipo', 'saida')
         .gte('data_hora', inicio.toISOString()).lte('data_hora', fim.toISOString()).order('id'));
@@ -351,7 +360,7 @@ const Api = {
         totais.set(id, resumo);
       }
     }
-    const itens = sensores.map(s => {
+    const itens = sensores.filter(s => comMovimentacao.has(String(s.id))).map(s => {
       const resumo = totais.get(String(s.id)) || { total: 0, ultima: null };
       return { ...paraPascal(s), TotalSaidas: resumo.total, UltimaSaida: resumo.ultima,
         QuantidadeSugerida: resumo.total > 0 ? Math.ceil(resumo.total / dias * 45) : null };
