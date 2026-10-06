@@ -281,7 +281,10 @@ const Api = {
       throw new Error('Informe uma quantidade válida (maior que zero).');
     }
 
-    // Busca o estoque atual do sensor pra calcular o novo valor e validar a saída
+    // Só valida o saldo pra dar uma mensagem de erro amigável antes de tentar
+    // registrar. O AJUSTE do estoque em si é feito pelo trigger do banco
+    // (ver schema.sql) disparado automaticamente ao inserir em "movimentacoes" —
+    // NÃO atualizar o estoque manualmente aqui, senão ele é alterado duas vezes.
     const sensorAtual = await checarErro(
       supabaseClient.from('sensores').select('estoque').eq('id', dados.SensorId).single(),
       'Sensor não encontrado'
@@ -291,15 +294,6 @@ const Api = {
     if (tipo === 'saida' && quantidade > estoqueAtual) {
       throw new Error(`Estoque insuficiente. Disponível: ${estoqueAtual}, solicitado: ${quantidade}.`);
     }
-
-    const novoEstoque = tipo === 'entrada' ? estoqueAtual + quantidade : estoqueAtual - quantidade;
-
-    // Atualiza o estoque primeiro; só registra o histórico se a atualização der certo
-    // (evita gravar uma movimentação "fantasma" que não reflete no estoque real)
-    await checarErro(
-      supabaseClient.from('sensores').update({ estoque: novoEstoque, atualizado_em: new Date().toISOString() }).eq('id', dados.SensorId),
-      'Erro ao atualizar estoque do sensor'
-    );
 
     const linha = {
       sensor_id: dados.SensorId,
@@ -311,15 +305,15 @@ const Api = {
       maquina_id: dados.MaquinaId || null
     };
 
-    try {
-      await checarErro(supabaseClient.from('movimentacoes').insert(linha), 'Erro ao registrar movimentação');
-    } catch (err) {
-      // Reverte o estoque se o registro do histórico falhar, pra não ficar inconsistente
-      await supabaseClient.from('sensores').update({ estoque: estoqueAtual }).eq('id', dados.SensorId);
-      throw err;
-    }
+    await checarErro(supabaseClient.from('movimentacoes').insert(linha), 'Erro ao registrar movimentação');
 
-    return { mensagem: 'Movimentação registrada com sucesso', novoEstoque };
+    // Busca o estoque já recalculado pelo trigger, pra mostrar o valor real e atual
+    const sensorAtualizado = await checarErro(
+      supabaseClient.from('sensores').select('estoque').eq('id', dados.SensorId).single(),
+      'Erro ao conferir estoque atualizado'
+    );
+
+    return { mensagem: 'Movimentação registrada com sucesso', novoEstoque: sensorAtualizado.estoque };
   },
 
   // ---------- KPIs / Dashboard ----------
