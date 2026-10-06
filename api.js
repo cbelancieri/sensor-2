@@ -316,6 +316,28 @@ const Api = {
     return { mensagem: 'Movimentação registrada com sucesso', novoEstoque: sensorAtualizado.estoque };
   },
 
+  chaveCotacao(sensor) {
+    const norm = valor => String(valor || '').trim().toUpperCase().replace(/\s+/g, ' ');
+    return sensor.CodFabricante && sensor.Marca ? norm(sensor.Marca) + '|' + norm(sensor.CodFabricante) : 'SENSOR|' + sensor.Id;
+  },
+  async lerCotacoes(itens) {
+    const chaves = [...new Set(itens.map(s => this.chaveCotacao(s)))];
+    const resultado = new Map();
+    for(let i=0;i<chaves.length;i+=100) {
+      const linhas = await checarErro(supabaseClient.from('cotacoes_compra').select('*').in('chave',chaves.slice(i,i+100)), 'Erro ao carregar cotações');
+      linhas.forEach(c => resultado.set(c.chave,c));
+    }
+    return resultado;
+  },
+  async pesquisarPreco(sensorId) {
+    const {data,error} = await supabaseClient.functions.invoke('consultar-preco',{body:{sensorId}});
+    if(error) throw new Error('Falha ao consultar preço. Verifique a Edge Function e sua configuração.');
+    return data;
+  },
+  async salvarPreco(chave,valor,automatico=false) {
+    await checarErro(supabaseClient.rpc('editar_cotacao',{p_chave:chave,p_valor:valor,p_automatico:automatico}), 'Erro ao salvar cotação');
+  },
+
   async listarCompras() {
     const fim = new Date();
     const inicio = new Date(fim);

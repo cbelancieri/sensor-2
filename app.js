@@ -1115,6 +1115,8 @@ async function renderCompras() {
   const dados = await Api.listarCompras();
   if (state.page !== 'compras') return;
   const { itens, inicio, fim, dias } = dados;
+  const cotacoes = await Api.lerCotacoes(itens);
+  if (state.page !== "compras") return;
   const esc = valor => String(valor ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const data = valor => new Date(valor).toLocaleDateString('pt-BR');
   const content = document.getElementById('page-content');
@@ -1131,17 +1133,52 @@ async function renderCompras() {
     </div>
     <div class="card" style="padding:0; overflow:auto;">
       ${!itens.length ? '<div class="empty-state">Nenhum sensor com estoque zero e movimentação registrada.</div>' : `
-      <table><thead><tr><th>Prioridade</th><th>Caixa</th><th>Nome</th><th>Cód. fabricante</th><th>Cód. DV</th><th>Marca</th><th>Estoque</th><th>Saídas em 3 meses</th><th>Quantidade sugerida</th><th>Quantidade a comprar</th><th>Última saída no período</th></tr></thead>
+      <table><thead><tr><th>Prioridade</th><th>Caixa</th><th>Nome</th><th>Cód. fabricante</th><th>Cód. DV</th><th>Marca</th><th>Estoque</th><th>Saídas em 3 meses</th><th>Quantidade sugerida</th><th>Quantidade a comprar</th><th>Última saída no período</th><th>Valor unitário (R$)</th><th>Cotação</th></tr></thead>
       <tbody>${itens.map((s, i) => `<tr>
         <td>${i + 1}</td><td>${esc(s.Caixa || '—')}</td><td>${esc(s.Nome)}</td><td>${esc(s.CodFabricante || '—')}</td>
         <td>${esc(s.CodDV || '—')}</td><td>${esc(s.Marca || '—')}</td><td><span class="badge badge-warning">0</span></td>
         <td>${s.TotalSaidas}</td><td>${s.QuantidadeSugerida ?? 'Revisar'}</td>
         <td><input type="number" min="0" step="1" value="${s.QuantidadeSugerida ?? ''}" placeholder="Revisar" aria-label="Quantidade a comprar para ${esc(s.Nome)}" style="width:100px;" data-compra-id="${esc(s.Id)}"></td>
         <td>${s.UltimaSaida ? data(s.UltimaSaida) : 'Sem saída registrada'}</td>
+        <td><input type="number" min="0" step="0.01" style="width:110px" data-preco="${esc(s.Id)}" value="${cotacoes.get(Api.chaveCotacao(s))?.valor ?? ''}" placeholder="Sem preço">
+        <button type="button" class="btn-secondary" data-salvar-preco="${esc(s.Id)}">Salvar</button>
+        <button type="button" class="btn-secondary" data-auto-preco="${esc(s.Id)}">Usar automático</button></td>
+        <td>${(() => { const c=cotacoes.get(Api.chaveCotacao(s)); return c ? esc((c.manual ? 'Manual' : c.status) + ' · ' + data(c.atualizado_em)) + (c.fontes || []).map(f => { try { const u=new URL(f.url); return ['https:','http:'].includes(u.protocol) ? ' <a target="_blank" rel="noopener noreferrer" href="'+esc(u.href)+'">'+esc(f.loja || 'Fonte')+'</a>' : ''; } catch { return ''; } }).join('') : 'Não consultado'; })()}</td>
       </tr>`).join('')}</tbody></table>`}
     </div>
-    <div class="page-subtitle">Apenas itens com alguma entrada ou saída registrada em todo o histórico. Prioridade pelo total de peças de saída no período; desempate pelo número da caixa. Quantidades editadas são temporárias e serão descartadas ao atualizar ou sair desta tela. Pesquisa de preços ainda não implementada.</div>`;
-  document.getElementById('btn-atualizar-compras').addEventListener('click', () => render());
+    <div class="page-subtitle">Apenas itens com alguma entrada ou saída registrada em todo o histórico. Prioridade pelo total de peças de saída no período; desempate pelo número da caixa. Quantidades editadas são temporárias e serão descartadas ao atualizar ou sair desta tela. Cotações automáticas reutilizadas por 30 dias; valores manuais protegidos. Falhas e buscas sem resultado também aguardam 30 dias antes de nova tentativa.</div>`;
+  const atualizar = document.getElementById('btn-atualizar-compras');
+  atualizar.addEventListener('click', async () => {
+    if(atualizar.disabled) return;
+    atualizar.disabled=true;
+    try {
+      const lista = await Api.listarCompras();
+      const salvas = await Api.lerCotacoes(lista.itens);
+      const vistos = new Set(); let feitas=0;
+      for(const s of lista.itens) {
+        if(!s.CodFabricante || !s.Marca) continue;
+        const chave=Api.chaveCotacao(s), c=salvas.get(chave);
+        if(vistos.has(chave)) continue; vistos.add(chave);
+        if(c?.manual || (c?.consultado_em && Date.now()-new Date(c.consultado_em).getTime()<30*86400000)) continue;
+        if(feitas>=20) break;
+        atualizar.textContent='Consultando preços ('+(++feitas)+'/20)...';
+        await Api.pesquisarPreco(s.Id);
+      }
+      await render();
+      showSuccess('Lista atualizada. Até 20 tentativas por clique; limite do servidor: 200 por mês.');
+    } catch(err) { showError(err.message); atualizar.disabled=false; atualizar.textContent='Atualizar lista'; }
+  });
+  content.querySelectorAll('[data-salvar-preco], [data-auto-preco]').forEach(btn => btn.addEventListener('click', async () => {
+    const automatico=btn.hasAttribute('data-auto-preco');
+    const id=automatico?btn.dataset.autoPreco:btn.dataset.salvarPreco;
+    const sensor=itens.find(s=>String(s.Id)===id);
+    const input=[...content.querySelectorAll('[data-preco]')].find(el=>el.dataset.preco===id);
+    const valor=automatico?null:Number(input.value);
+    if(!automatico && (input.value.trim()==='' || !Number.isFinite(valor) || valor<0 || valor>100000000)) {showError('Informe um preço válido.');return;}
+    btn.disabled=true;
+    try { await Api.salvarPreco(Api.chaveCotacao(sensor),valor,automatico); await renderCompras(); showSuccess(automatico?'Cotação liberada para consulta no próximo Atualizar lista.':'Valor manual salvo.'); }
+    catch(err){showError(err.message);btn.disabled=false;}
+  }));
   content.querySelectorAll('[data-compra-id]').forEach(input => input.addEventListener('change', () => {
     if (input.value === '') return;
     const quantidade = Number(input.value);
