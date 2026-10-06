@@ -1133,17 +1133,31 @@ async function renderCompras() {
     </div>
     <div class="card" style="padding:0; overflow:auto;">
       ${!itens.length ? '<div class="empty-state">Nenhum sensor com estoque zero e movimentação registrada.</div>' : `
-      <table><thead><tr><th>Prioridade</th><th>Caixa</th><th>Nome</th><th>Cód. fabricante</th><th>Cód. DV</th><th>Marca</th><th>Estoque</th><th>Saídas em 3 meses</th><th>Quantidade sugerida</th><th>Quantidade a comprar</th><th>Última saída no período</th><th>Valor unitário (R$)</th><th>Cotação</th></tr></thead>
+      <table class="compras-table"><thead><tr><th>Prioridade</th><th>Caixa</th><th>Nome</th><th>Cód. fabricante</th><th>Cód. DV</th><th>Marca</th><th>Estoque</th><th>Saídas em 3 meses</th><th>Quantidade sugerida</th><th>Quantidade a comprar</th><th>Última saída no período</th><th>Valor unitário (R$)</th><th>Cotação</th></tr></thead>
       <tbody>${itens.map((s, i) => `<tr>
         <td>${i + 1}</td><td>${esc(s.Caixa || '—')}</td><td>${esc(s.Nome)}</td><td>${esc(s.CodFabricante || '—')}</td>
         <td>${esc(s.CodDV || '—')}</td><td>${esc(s.Marca || '—')}</td><td><span class="badge badge-warning">0</span></td>
         <td>${s.TotalSaidas}</td><td>${s.QuantidadeSugerida ?? 'Revisar'}</td>
-        <td><input type="number" min="0" step="1" value="${s.QuantidadeSugerida ?? ''}" placeholder="Revisar" aria-label="Quantidade a comprar para ${esc(s.Nome)}" style="width:100px;" data-compra-id="${esc(s.Id)}"></td>
+        <td><input type="number" min="0" step="1" value="${s.QuantidadeSugerida ?? ''}" placeholder="Revisar" aria-label="Quantidade a comprar para ${esc(s.Nome)}" class="compra-quantidade" data-compra-id="${esc(s.Id)}"></td>
         <td>${s.UltimaSaida ? data(s.UltimaSaida) : 'Sem saída registrada'}</td>
-        <td><input type="number" min="0" step="0.01" style="width:110px" data-preco="${esc(s.Id)}" value="${cotacoes.get(Api.chaveCotacao(s))?.valor ?? ''}" placeholder="Sem preço">
-        <button type="button" class="btn-secondary" data-salvar-preco="${esc(s.Id)}">Salvar</button>
-        <button type="button" class="btn-secondary" data-auto-preco="${esc(s.Id)}">Usar automático</button></td>
-        <td>${(() => { const c=cotacoes.get(Api.chaveCotacao(s)); return c ? esc((c.manual ? 'Manual' : c.status) + ' · ' + data(c.atualizado_em)) + (c.fontes || []).map(f => { try { const u=new URL(f.url); return ['https:','http:'].includes(u.protocol) ? ' <a target="_blank" rel="noopener noreferrer" href="'+esc(u.href)+'">'+esc(f.loja || 'Fonte')+'</a>' : ''; } catch { return ''; } }).join('') : 'Não consultado'; })()}</td>
+        <td class="compra-preco-cell"><div class="compra-preco-editor">
+          <div class="compra-preco-linha">
+            <input type="number" min="0" step="0.01" class="compra-preco-input" aria-label="Valor unitário para ${esc(s.Nome)}" data-preco="${esc(s.Id)}" value="${(() => { const v=cotacoes.get(Api.chaveCotacao(s))?.valor; return v != null && Number.isFinite(Number(v)) ? Number(v).toFixed(2) : ''; })()}" placeholder="Sem preço">
+            <button type="button" class="btn-primary compra-salvar" data-salvar-preco="${esc(s.Id)}">Salvar</button>
+          </div>
+          <button type="button" class="compra-automatico" data-auto-preco="${esc(s.Id)}" title="Libera o preço para consulta no próximo Atualizar lista">Usar preço automático</button>
+        </div></td>
+        <td class="compra-cotacao-cell">${(() => {
+          const c=cotacoes.get(Api.chaveCotacao(s));
+          if (!c) return '<span class="compra-status">Não consultado</span>';
+          const rotulos = { referencia_web_unica: 'Referência web única', uma_oferta: 'Uma oferta', estimativa: 'Estimativa', sem_cotacao: 'Sem cotação', resultados_sem_preco_compativel: 'Sem preço compatível', nenhum_resultado: 'Nenhum resultado', erro_consulta: 'Erro na consulta', limite_busca_alternativa: 'Limite de busca alternativa' };
+          const rotulo = c.manual ? 'Manual' : (rotulos[c.status] || c.status || 'Sem cotação');
+          const fontes = (c.fontes || []).map(f => { try {
+            const u=new URL(f.url);
+            return ['https:','http:'].includes(u.protocol) ? '<a class="compra-fonte" target="_blank" rel="noopener noreferrer" href="'+esc(u.href)+'" title="'+esc(f.loja || u.hostname)+'">Ver fonte ↗ <span>'+esc(f.loja || u.hostname)+'</span></a>' : '';
+          } catch { return ''; } }).join('');
+          return '<div class="compra-cotacao"><span class="compra-status '+(c.manual ? 'is-manual' : 'is-automatico')+'">'+esc(rotulo)+'</span>'+(c.atualizado_em ? '<span class="compra-data">Atualizado em '+esc(data(c.atualizado_em))+'</span>' : '')+fontes+'</div>';
+        })()}</td>
       </tr>`).join('')}</tbody></table>`}
     </div>
     <div class="page-subtitle">Apenas itens com alguma entrada ou saída registrada em todo o histórico. Prioridade pelo total de peças de saída no período; desempate pelo número da caixa. Quantidades editadas são temporárias e serão descartadas ao atualizar ou sair desta tela. Cotações automáticas reutilizadas por 30 dias; valores manuais protegidos. Falhas e buscas sem resultado também aguardam 30 dias antes de nova tentativa.</div>`;

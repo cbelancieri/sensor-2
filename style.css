@@ -179,3 +179,47 @@ tbody tr:hover { background: #fafafa; }
 .error-banner.banner-success {
   background: #e6f7ec; color: #1f8a4c;
 }
+
+/* Lista de compras: edição de preço e cotação */
+.compras-table td { vertical-align: middle; }
+.compras-table tbody tr:hover { background: #f8fafc; }
+.compras-table .compra-quantidade {
+  width: 88px; height: 36px; box-sizing: border-box;
+  text-align: center; border-radius: 8px;
+}
+.compra-preco-cell { min-width: 220px; }
+.compra-preco-editor { display: flex; flex-direction: column; gap: 8px; width: 220px; }
+.compra-preco-linha { display: flex; align-items: center; gap: 8px; }
+.compras-table .compra-preco-input {
+  width: 132px; min-width: 0; height: 36px; box-sizing: border-box;
+  text-align: right; border-radius: 8px; font-variant-numeric: tabular-nums;
+}
+.compras-table .compra-salvar {
+  height: 36px; padding: 0 14px; border-radius: 8px;
+  display: inline-flex; align-items: center; justify-content: center;
+  white-space: nowrap; font-size: 12px;
+}
+.compra-automatico {
+  align-self: flex-start; background: transparent; border: 1px solid transparent;
+  border-radius: 6px; padding: 4px 6px; font: inherit; font-size: 11.5px;
+  color: #526176; cursor: pointer; line-height: 1.4;
+}
+.compra-automatico:hover { color: #1d4ed8; background: #eff6ff; }
+.compra-automatico:focus-visible, .compra-salvar:focus-visible,
+.compra-preco-input:focus-visible, .compra-fonte:focus-visible {
+  outline: 2px solid #2563eb; outline-offset: 2px;
+}
+.compra-automatico:disabled, .compra-salvar:disabled { opacity: .55; cursor: wait; }
+.compra-cotacao-cell { min-width: 190px; }
+.compra-cotacao { display: flex; flex-direction: column; align-items: flex-start; gap: 5px; }
+.compra-status {
+  display: inline-block; padding: 3px 8px; border-radius: 999px;
+  background: #f1f5f9; color: #475569; font-size: 11px; font-weight: 600;
+  line-height: 1.4;
+}
+.compra-status.is-manual { background: #fff3df; color: #87520d; }
+.compra-status.is-automatico { background: #edf3ff; color: #244c92; }
+.compra-data { color: #64748b; font-size: 11px; white-space: nowrap; }
+.compra-fonte { color: #2563eb; font-size: 11.5px; text-decoration: none; }
+.compra-fonte:hover { text-decoration: underline; }
+.compra-fonte span { display: block; color: #64748b; font-size: 10.5px; overflow-wrap: anywhere; }
