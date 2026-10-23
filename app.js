@@ -1124,7 +1124,10 @@ async function renderCompras() {
     <div class="page-header">
       <div><h1 class="page-title">Lista de compra</h1>
         <div class="page-subtitle">${itens.length} item(ns) com estoque zero e movimentação registrada · histórico: ${data(inicio)} a ${data(fim)}</div></div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button type="button" class="btn-primary" id="btn-gerar-pedido">Gerar lista para compra</button>
       <button type="button" class="btn-secondary" id="btn-atualizar-compras">Atualizar lista</button>
+      </div>
     </div>
     <div class="card">
       <div class="page-subtitle">Entrega: 15 dias · revisão: 30 dias · cobertura: 45 dias.<br>
@@ -1161,6 +1164,72 @@ async function renderCompras() {
       </tr>`).join('')}</tbody></table>`}
     </div>
     <div class="page-subtitle">Apenas itens com alguma entrada ou saída registrada em todo o histórico. Prioridade pelo total de peças de saída no período; desempate pelo número da caixa. Quantidades editadas são temporárias e serão descartadas ao atualizar ou sair desta tela. Cotações automáticas reutilizadas por 30 dias; valores manuais protegidos. Falhas e buscas sem resultado também aguardam 30 dias antes de nova tentativa.</div>`;
+
+  document.getElementById('btn-gerar-pedido').addEventListener('click', async () => {
+    const selecionados = [];
+    const precos = new Map([...content.querySelectorAll('[data-preco]')].map(el => [el.dataset.preco, el]));
+    const porId = new Map(itens.map(s => [String(s.Id), s]));
+    for (const input of content.querySelectorAll('[data-compra-id]')) {
+      if (!input.value.trim()) continue;
+      const qtd = Number(input.value);
+      if (!Number.isSafeInteger(qtd) || qtd < 0) { showError('Revise as quantidades: use números inteiros iguais ou maiores que zero.'); return; }
+      if (qtd === 0) continue;
+      const sensor = porId.get(input.dataset.compraId);
+      const precoInput = precos.get(input.dataset.compraId);
+      const texto = precoInput?.value.trim() || '';
+      const preco = texto === '' ? null : Number(texto);
+      if (preco !== null && (!Number.isFinite(preco) || preco < 0 || preco > 100000000)) { showError('Revise o valor unitário da caixa ' + sensor.Caixa + '.'); return; }
+      selecionados.push({ sensor, qtd, preco });
+    }
+    if (!selecionados.length) { showError('Informe uma quantidade a comprar maior que zero em pelo menos um item.'); return; }
+    const aba = window.open('', '_blank');
+    if (!aba) { showError('Permita a abertura de novas abas para gerar a lista de compra.'); return; }
+    aba.opener = null;
+    aba.document.title = 'Preparando lista de compra';
+    aba.document.body.textContent = 'Preparando descrição dos itens...';
+    const botao = document.getElementById('btn-gerar-pedido');
+    botao.disabled = true;
+    try {
+      // Busca detalhes apenas dos itens selecionados, sem atualizar ou perder os campos editados.
+      const detalhes = [];
+      for (const item of selecionados) detalhes.push(await Api.buscarSensor(item.sensor.Id));
+      if (aba.closed) return;
+      const campos = [
+        ['Tipo', 'Tipo'], ['Distancia', 'Distância'], ['TipoSaida', 'Saída'],
+        ['LogicaSaida', 'Lógica'], ['Tensao', 'Tensão'], ['FormaComutacao', 'Comutação'],
+        ['Formato', 'Formato'], ['Rosca', 'Rosca'], ['IP', 'IP'], ['Conexao', 'Conexão'],
+        ['Material', 'Material'], ['Aplicacao', 'Aplicação'], ['Genero', 'Gênero'],
+        ['Pinos', 'Pinos'], ['Tamanho', 'Tamanho'], ['Papel', 'Papel'], ['Cabeca', 'Cabeça'],
+        ['CilindroTipo', 'Tipo de cilindro'], ['CilindroMontagem', 'Montagem'], ['CilindroFios', 'Fios']
+      ];
+      const moeda = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
+      const linhas = selecionados.map((item, i) => {
+        const s = detalhes[i];
+        const partes = campos.filter(([k]) => s[k] != null && String(s[k]).trim() !== '').map(([k, label]) => label + ': ' + s[k]);
+        if (s.Recursos?.length) partes.push('Recursos: ' + s.Recursos.join(', '));
+        return '<tr>' + [s.Caixa || '—', s.Nome || '—', partes.join(' · ') || '—', s.CodFabricante || '—', s.CodDV || '—', s.Marca || '—', item.qtd, item.preco === null ? 'Não informado' : moeda.format(item.preco)].map((v, j) => '<td' + (j >= 6 ? ' class="numero"' : '') + '>' + esc(v) + '</td>').join('') + '</tr>';
+      }).join('');
+      aba.document.open();
+      aba.document.write(`<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Lista de compra - SensorControl</title>
+        <style>
+        *{box-sizing:border-box}body{font-family:Arial,sans-serif;color:#172033;margin:28px;font-size:12px}
+        h1{font-size:22px;margin:0 0 8px}.meta{color:#64748b;margin:0 0 18px;line-height:1.6}
+        .acoes{display:flex;gap:10px;margin-bottom:20px}button{border:0;border-radius:6px;padding:10px 16px;background:#2563eb;color:white;cursor:pointer}
+        table{width:100%;border-collapse:collapse;table-layout:fixed}th,td{border:1px solid #dbe1e8;padding:8px;text-align:left;vertical-align:top;overflow-wrap:anywhere}
+        th{background:#edf2fa;font-size:11px}td{font-size:11px;line-height:1.5}.numero{text-align:right;font-variant-numeric:tabular-nums}
+        @page{size:A4 landscape;margin:10mm}@media print{body{margin:0}.acoes{display:none}thead{display:table-header-group}tr{break-inside:avoid}th{print-color-adjust:exact}}
+        </style></head><body><div class="acoes"><button id="imprimir" type="button">Imprimir / Salvar como PDF</button></div>
+        <h1>Lista de compra</h1><p class="meta">SensorControl · Gerado em ${esc(new Date().toLocaleString('pt-BR'))}<br>${selecionados.length} item(ns). Quantidades e preços conforme os campos da tela no momento da geração. Valores ausentes: não informados.</p>
+        <table><colgroup><col style="width:5%"><col style="width:15%"><col style="width:29%"><col style="width:12%"><col style="width:9%"><col style="width:10%"><col style="width:9%"><col style="width:11%"></colgroup>
+        <thead><tr><th>Caixa</th><th>Nome</th><th>Descrição</th><th>Cód. fabricante</th><th>Cód. DV</th><th>Marca</th><th>Quantidade a comprar</th><th>Valor unitário</th></tr></thead><tbody>${linhas}</tbody></table></body></html>`);
+      aba.document.close();
+      aba.document.getElementById('imprimir').addEventListener('click', () => aba.print());
+    } catch (err) {
+      if (!aba.closed) aba.document.body.textContent = 'Não foi possível gerar a lista. Feche esta aba e tente novamente.';
+      showError('Falha ao gerar lista de compra: ' + err.message);
+    } finally { botao.disabled = false; }
+  });
+
   const atualizar = document.getElementById('btn-atualizar-compras');
   atualizar.addEventListener('click', async () => {
     if(atualizar.disabled) return;
