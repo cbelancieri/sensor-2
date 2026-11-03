@@ -66,6 +66,7 @@ async function render() {
     else if (state.page === 'estrutura') await renderEstrutura();
     else if (state.page === 'dashboard') await renderDashboard();
     else if (state.page === 'compras') await renderCompras();
+    else if (state.page === 'pedidos') await PedidoUI.abrir();
   } catch (err) {
     showError(err.message);
     content.innerHTML = `<div class="empty-state">Não foi possível carregar os dados. Verifique a conexão com o Supabase.</div>`;

@@ -1,0 +1,99 @@
+
+// Pedidos de compra: módulo independente, sem alteração de estoque.
+const PedidoUI = (() => {
+  const esc = v => String(v ?? '').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const status = {rascunho:'Rascunho',aguardando:'Aguardando recebimento',parcial:'Recebido parcialmente',concluido:'Concluído',cancelado:'Cancelado'};
+  const numero = p => p.numero ? 'SC-'+String(p.numero).padStart(6,'0') : 'Rascunho';
+  const data = v => v ? new Date(v).toLocaleString('pt-BR') : '—';
+  let atual=null, linhas=[], lista=[], ocupado=false;
+  const root=()=>document.getElementById('page-content');
+  async function consulta(q){const {data,error}=await q;if(error)throw new Error(error.message);return data;}
+  async function operar(acao,dados={}){
+    return consulta(supabaseClient.rpc('sc_operar_pedido',{p_acao:acao,p_id:atual?.id||null,p_dados:{...dados,versao:atual?.versao}}));
+  }
+  async function executar(fn){if(ocupado)return;ocupado=true;try{await fn();}catch(e){showError(e.message);}finally{ocupado=false;}}
+  function botao(id,fn){document.getElementById(id)?.addEventListener('click',()=>executar(fn));}
+  async function abrir(){
+    const {data:{session},error}=await supabaseClient.auth.getSession();if(error)throw error;
+    if(state.page!=='pedidos')return;
+    if(!session){login();return;}
+    await listar();
+  }
+  function login(){
+    root().innerHTML=`<h1 class="page-title">Pedidos de compra</h1><div class="card pedido-login"><p>Entre para acessar o controle compartilhado de pedidos.</p><form id="pc-login"><label class="field-label" for="pc-email">E-mail</label><input id="pc-email" type="email" autocomplete="username" required><label class="field-label" for="pc-senha">Senha</label><input id="pc-senha" type="password" autocomplete="current-password" required><button class="btn-primary" type="submit">Entrar</button></form><p class="page-subtitle">Use um usuário criado pelo administrador no Supabase Authentication. Não use chaves do projeto como senha.</p></div>`;
+    document.getElementById('pc-login').addEventListener('submit',e=>{e.preventDefault();executar(async()=>{
+      const {error}=await supabaseClient.auth.signInWithPassword({email:document.getElementById('pc-email').value.trim(),password:document.getElementById('pc-senha').value});
+      if(error)throw error;await listar();
+    });});
+  }
+  async function listar(){
+    atual=null;
+    lista=[];
+    for(let offset=0;;offset+=500){
+      const pagina=await consulta(supabaseClient.from('sc_pedidos').select('*').order('criado_em',{ascending:false}).order('id').range(offset,offset+499));
+      lista.push(...pagina);if(pagina.length<500)break;
+    }
+    if(state.page!=='pedidos')return;
+    root().innerHTML=`<div class="page-header"><div><h1 class="page-title">Pedidos de compra</h1><div class="page-subtitle">Controle de recebimentos — não altera o estoque.</div></div><div class="pedido-acoes"><button class="btn-primary" id="pc-novo">Novo pedido</button><button class="btn-secondary" id="pc-recarregar">Atualizar</button><button class="btn-secondary" id="pc-sair">Sair do módulo</button></div></div><div class="pedido-acoes"><input id="pc-filtro" placeholder="Buscar número interno ou P.C." aria-label="Pesquisar pedidos"><select id="pc-status" aria-label="Filtrar situação"><option value="">Todas as situações</option>${Object.entries(status).map(([v,t])=>`<option value="${v}">${t}</option>`).join('')}</select></div><div class="card pedido-tabela"><table><thead><tr><th>Pedido interno</th><th>Criado em</th><th>P.C. do sistema</th><th>Situação</th><th></th></tr></thead><tbody id="pc-lista"></tbody></table></div>`;
+    const desenhar=()=>{
+      const termo=document.getElementById('pc-filtro').value.trim().toLowerCase(),situacao=document.getElementById('pc-status').value;
+      const filtrados=lista.filter(p=>(!situacao||p.status===situacao)&&(!termo||(numero(p)+' '+p.pc).toLowerCase().includes(termo)));
+      document.getElementById('pc-lista').innerHTML=filtrados.map(p=>`<tr><td>${esc(numero(p))}</td><td>${esc(data(p.criado_em))}</td><td>${esc(p.pc||'Não informado')}</td><td><span class="badge">${esc(status[p.status])}</span></td><td><button class="btn-secondary" data-pedido="${p.id}">Abrir</button></td></tr>`).join('')||'<tr><td colspan="5">Nenhum pedido encontrado.</td></tr>';
+      root().querySelectorAll('[data-pedido]').forEach(b=>b.addEventListener('click',()=>executar(()=>detalhar(b.dataset.pedido))));
+    };
+    document.getElementById('pc-filtro').addEventListener('input',desenhar);document.getElementById('pc-status').addEventListener('change',desenhar);desenhar();
+    botao('pc-novo',()=>{atual=null;linhas=[{descricao:'',cod_fabricante:'',dv:'',quantidade:1}];editar();});
+    botao('pc-recarregar',listar);botao('pc-sair',async()=>{const {error}=await supabaseClient.auth.signOut();if(error)throw error;login();});
+  }
+  async function carregar(id){
+    const p=await consulta(supabaseClient.from('sc_pedidos').select('*').eq('id',id).single());
+    const itens=await consulta(supabaseClient.from('sc_pedido_itens').select('*').eq('pedido_id',id).order('item'));
+    atual=p;linhas=itens;return p;
+  }
+  function editar(){
+    root().innerHTML=`<div class="page-header"><div><h1 class="page-title">${atual?'Editar rascunho':'Novo pedido'}</h1><p class="page-subtitle">Preencha cada linha. Salve o rascunho antes de emitir.</p></div><button class="btn-secondary" id="pc-voltar">Voltar</button></div><div class="card pedido-tabela"><table><thead><tr><th>Nº item</th><th>Descrição</th><th>Cód. fabricante</th><th>DV</th><th>Quantidade</th><th></th></tr></thead><tbody id="pc-linhas"></tbody></table></div><div class="pedido-acoes"><button class="btn-secondary" id="pc-adicionar">Adicionar linha</button><button class="btn-primary" id="pc-salvar">Salvar rascunho</button></div>`;
+    desenharLinhas();
+    botao('pc-voltar',async()=>{if(confirm('Voltar sem salvar as alterações desta tela?'))await listar();});
+    botao('pc-adicionar',()=>{lerLinhas();if(linhas.length>=500)throw new Error('Limite de 500 itens.');linhas.push({descricao:'',cod_fabricante:'',dv:'',quantidade:1});desenharLinhas();});
+    botao('pc-salvar',async()=>{
+      lerLinhas();if(!linhas.length)throw new Error('Adicione pelo menos um item.');
+      linhas.forEach((l,i)=>{if(!l.descricao.trim()||!Number.isSafeInteger(l.quantidade)||l.quantidade<=0)throw new Error('Revise descrição e quantidade do item '+(i+1));});
+      const id=await operar('salvar',{itens:linhas});await detalhar(id);showSuccess('Rascunho salvo.');
+    });
+  }
+  function lerLinhas(){linhas=[...root().querySelectorAll('[data-pc-linha]')].map(tr=>({descricao:tr.querySelector('[data-campo="descricao"]').value,cod_fabricante:tr.querySelector('[data-campo="cod_fabricante"]').value,dv:tr.querySelector('[data-campo="dv"]').value,quantidade:Number(tr.querySelector('[data-campo="quantidade"]').value)}));}
+  function desenharLinhas(){
+    document.getElementById('pc-linhas').innerHTML=linhas.map((l,i)=>`<tr data-pc-linha><td>${i+1}</td><td><textarea data-campo="descricao" maxlength="4000" aria-label="Descrição item ${i+1}">${esc(l.descricao)}</textarea></td><td><input data-campo="cod_fabricante" maxlength="200" value="${esc(l.cod_fabricante)}" aria-label="Código fabricante item ${i+1}"></td><td><input data-campo="dv" maxlength="200" value="${esc(l.dv)}" aria-label="DV item ${i+1}"></td><td><input data-campo="quantidade" type="number" min="1" step="1" value="${esc(l.quantidade)}" aria-label="Quantidade item ${i+1}"></td><td><button class="btn-secondary" data-remover="${i}" title="Remover linha">×</button></td></tr>`).join('');
+    root().querySelectorAll('[data-remover]').forEach(b=>b.addEventListener('click',()=>{lerLinhas();linhas.splice(Number(b.dataset.remover),1);desenharLinhas();}));
+  }
+  async function detalhar(id){
+    await carregar(id);
+    const historico=[];
+    for(let o=0;;o+=500){const pag=await consulta(supabaseClient.from('sc_pedido_recebimentos').select('*').eq('pedido_id',id).order('recebido_em',{ascending:false}).order('id').range(o,o+499));historico.push(...pag);if(pag.length<500)break;}
+    if(state.page!=='pedidos')return;
+    const p=atual,aberto=['aguardando','parcial'].includes(p.status),rascunho=p.status==='rascunho';
+    root().innerHTML=`<div class="page-header"><div><h1 class="page-title">${esc(numero(p))}</h1><p class="page-subtitle">${esc(status[p.status])} · Emissão: ${esc(data(p.emitido_em))}</p></div><div class="pedido-acoes"><button class="btn-secondary" id="pc-voltar">Voltar</button>${rascunho?'<button class="btn-secondary" id="pc-editar">Editar itens</button><button class="btn-primary" id="pc-emitir">Emitir pedido</button>':'<button class="btn-primary" id="pc-imprimir">Abrir documento / PDF</button>'}${!['concluido','cancelado'].includes(p.status)?'<button class="btn-secondary" id="pc-cancelar">Cancelar pedido</button>':''}</div></div>
+    <div class="card"><label class="field-label" for="pc-numero">P.C. do seu sistema</label><div class="pedido-acoes"><input id="pc-numero" maxlength="100" value="${esc(p.pc)}" placeholder="Preencher quando disponível"><button class="btn-secondary" id="pc-gravar-numero">Salvar P.C.</button></div><p class="page-subtitle">Registrar recebimentos aqui não altera o estoque.</p></div>
+    <div class="card pedido-tabela"><table><thead><tr><th>Item</th><th>Descrição</th><th>Cód. fabricante</th><th>DV</th><th>Solicitado</th><th>Recebido</th><th>Pendente</th>${aberto?'<th>Receber agora</th><th></th>':''}</tr></thead><tbody>${linhas.map(l=>`<tr><td>${l.item}</td><td class="pedido-descricao">${esc(l.descricao)}</td><td>${esc(l.cod_fabricante)}</td><td>${esc(l.dv)}</td><td>${l.quantidade}</td><td>${l.recebido}</td><td>${l.quantidade-l.recebido}</td>${aberto?`<td><input data-receber="${l.id}" type="number" min="0" max="${l.quantidade-l.recebido}" step="1" value="0" aria-label="Receber item ${l.item}" ${l.recebido===l.quantidade?'disabled':''}></td><td><button class="btn-secondary" data-saldo="${l.id}" ${l.recebido===l.quantidade?'disabled':''}>Receber saldo</button></td>`:''}</tr>`).join('')}</tbody></table></div>
+    ${aberto?'<button class="btn-primary" id="pc-receber">Confirmar recebimento informado</button>':''}
+    <div class="card"><h2 style="font-size:16px">Histórico de recebimentos</h2>${historico.length?`<table><thead><tr><th>Data</th><th>Item</th><th>Quantidade</th><th>Responsável (ID)</th></tr></thead><tbody>${historico.map(h=>`<tr><td>${esc(data(h.recebido_em))}</td><td>${linhas.find(l=>l.id===h.item_id)?.item||'—'}</td><td>${h.quantidade}</td><td>${esc(h.responsavel)}</td></tr>`).join('')}</tbody></table>`:'Nenhum recebimento registrado.'}</div>`;
+    botao('pc-voltar',listar);botao('pc-editar',editar);
+    botao('pc-gravar-numero',async()=>{await operar('pc',{pc:document.getElementById('pc-numero').value});await detalhar(p.id);showSuccess('P.C. salvo.');});
+    botao('pc-emitir',async()=>{if(!confirm('Emitir este pedido? Os itens não poderão mais ser alterados.'))return;await operar('emitir');await detalhar(p.id);imprimir();});
+    botao('pc-imprimir',imprimir);
+    botao('pc-cancelar',async()=>{if(!confirm('Cancelar o pedido e encerrar o saldo pendente? O histórico será preservado.'))return;await operar('cancelar');await detalhar(p.id);});
+    root().querySelectorAll('[data-saldo]').forEach(b=>b.addEventListener('click',()=>{const l=linhas.find(l=>l.id===b.dataset.saldo);root().querySelector(`[data-receber="${l.id}"]`).value=l.quantidade-l.recebido;}));
+    botao('pc-receber',async()=>{
+      const recebimentos=[];for(const input of root().querySelectorAll('[data-receber]')){const n=Number(input.value),l=linhas.find(l=>l.id===input.dataset.receber);if(!Number.isSafeInteger(n)||n<0||n>l.quantidade-l.recebido)throw new Error('Revise a quantidade do item '+l.item);if(n>0)recebimentos.push({id:l.id,quantidade:n});}
+      if(!recebimentos.length)throw new Error('Informe pelo menos uma quantidade a receber.');
+      if(!confirm('Confirmar estas quantidades recebidas? Este registro não altera o estoque.'))return;
+      await operar('receber',{itens:recebimentos});await detalhar(p.id);showSuccess('Recebimento registrado; estoque não alterado.');
+    });
+  }
+  function imprimir(){
+    const aba=window.open('','_blank');if(!aba){showError('Pedido salvo. Permita novas abas e clique em Abrir documento / PDF.');return;}
+    aba.opener=null;
+    aba.document.write(`<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Pedido ${esc(numero(atual))}</title><style>body{font-family:Arial,sans-serif;margin:25px;color:#172033}h1{font-size:22px}table{width:100%;border-collapse:collapse}td,th{border:1px solid #ccc;padding:9px;text-align:left;font-size:12px;overflow-wrap:anywhere}td{white-space:pre-wrap}th{background:#eef2fb}button{padding:10px;margin-bottom:18px}thead{display:table-header-group}@page{size:A4 landscape;margin:12mm}@media print{button{display:none}body{margin:0}tr{break-inside:avoid}}</style></head><body><button id="print">Imprimir / Salvar como PDF</button><h1>Pedido ${esc(numero(atual))}</h1><p>Emissão: ${esc(data(atual.emitido_em))}<br>P.C. do sistema: ${esc(atual.pc||'Não informado')}<br>Situação: ${esc(status[atual.status])}</p><table><thead><tr><th>Nº item</th><th>Descrição</th><th>Cód. fabricante</th><th>DV</th><th>Quantidade solicitada</th></tr></thead><tbody>${linhas.map(l=>`<tr><td>${l.item}</td><td>${esc(l.descricao)}</td><td>${esc(l.cod_fabricante)}</td><td>${esc(l.dv)}</td><td>${l.quantidade}</td></tr>`).join('')}</tbody></table></body></html>`);aba.document.close();aba.document.getElementById('print').addEventListener('click',()=>aba.print());
+  }
+  return {abrir};
+})();
