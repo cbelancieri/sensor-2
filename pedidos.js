@@ -36,7 +36,8 @@ const PedidoUI = (() => {
       lista.push(...pagina);if(pagina.length<500)break;
     }
     if(state.page!=='pedidos')return;
-    root().innerHTML=`<div class="page-header"><div><h1 class="page-title">Pedidos de compra</h1><div class="page-subtitle">Controle de recebimentos — não altera o estoque.</div></div><div class="pedido-acoes"><button class="btn-primary" id="pc-novo">Novo pedido</button><button class="btn-secondary" id="pc-recarregar">Atualizar</button><button class="btn-secondary" id="pc-sair">Sair do módulo</button></div></div><div class="pedido-acoes"><input id="pc-filtro" placeholder="Buscar número interno, apelido ou P.C." aria-label="Pesquisar pedidos"><select id="pc-status" aria-label="Filtrar situação"><option value="">Todas as situações</option>${Object.entries(status).map(([v,t])=>`<option value="${v}">${t}</option>`).join('')}</select></div><div class="card pedido-tabela"><table><thead><tr><th>Pedido interno</th><th>Descrição / Apelido</th><th>Criado em</th><th>P.C. do sistema</th><th>Situação</th><th></th></tr></thead><tbody id="pc-lista"></tbody></table></div>`;
+    root().innerHTML=`<div class="page-header"><div><h1 class="page-title">Pedidos de compra</h1><div class="page-subtitle">Controle de recebimentos — não altera o estoque.</div></div><div class="pedido-acoes"><button class="btn-primary" id="pc-novo">Novo pedido</button><button class="btn-secondary" id="pc-recarregar">Atualizar</button><button class="btn-secondary" id="pc-sair">Sair do módulo</button></div></div><div class="card"><h2 style="font-size:16px;margin-top:0">Localizar item nos pedidos</h2><form id="pc-busca-item-form" class="pedido-acoes"><input id="pc-busca-item" maxlength="200" required placeholder="Nome/descrição, cód. fabricante ou DV" aria-label="Pesquisar item nos pedidos" style="width:min(100%,430px)"><select id="pc-busca-item-status" aria-label="Situação dos pedidos pesquisados"><option value="">Todas as situações</option><option value="pendentes">Somente pedidos com saldo pendente</option>${Object.entries(status).map(([v,t])=>`<option value="${v}">${t}</option>`).join('')}</select><button class="btn-primary" id="pc-busca-item-enviar" type="submit">Pesquisar item</button><button class="btn-secondary" id="pc-busca-item-limpar" type="button">Limpar</button></form><p class="page-subtitle">Busca parcial nos itens salvos dos pedidos. Não pesquisa o cadastro de sensores. Filtro independente da lista abaixo.</p><div id="pc-busca-item-resultados" aria-live="polite"></div></div><div class="pedido-acoes"><input id="pc-filtro" placeholder="Buscar número interno, apelido ou P.C." aria-label="Pesquisar pedidos"><select id="pc-status" aria-label="Filtrar situação"><option value="">Todas as situações</option>${Object.entries(status).map(([v,t])=>`<option value="${v}">${t}</option>`).join('')}</select></div><div class="card pedido-tabela"><table><thead><tr><th>Pedido interno</th><th>Descrição / Apelido</th><th>Criado em</th><th>P.C. do sistema</th><th>Situação</th><th></th></tr></thead><tbody id="pc-lista"></tbody></table></div>`;
+    prepararBuscaItens();
     const desenhar=()=>{
       const termo=document.getElementById('pc-filtro').value.trim().toLowerCase(),situacao=document.getElementById('pc-status').value;
       const filtrados=lista.filter(p=>(!situacao||p.status===situacao)&&(!termo||(numero(p)+' '+(p.apelido||'')+' '+p.pc).toLowerCase().includes(termo)));
@@ -47,6 +48,51 @@ const PedidoUI = (() => {
     botao('pc-novo',()=>{atual=null;linhas=[{descricao:'',cod_fabricante:'',dv:'',quantidade:1}];editar();});
     botao('pc-recarregar',listar);botao('pc-sair',async()=>{const {error}=await supabaseClient.auth.signOut();if(error)throw error;login();});
   }
+
+  function prepararBuscaItens(){
+    const form=document.getElementById('pc-busca-item-form');
+    const campo=document.getElementById('pc-busca-item');
+    const filtro=document.getElementById('pc-busca-item-status');
+    const destino=document.getElementById('pc-busca-item-resultados');
+    const enviar=document.getElementById('pc-busca-item-enviar');
+    let encontrados=[], termo='', situacao='', proxima=0, fim=false, buscando=false, geracao=0;
+    const pintar=()=>{
+      if(!encontrados.length){destino.textContent='Nenhum item encontrado para esta pesquisa.';return;}
+      const pedidos=new Set(encontrados.map(r=>r.pedido_id)).size;
+      destino.innerHTML=`<p>${encontrados.length} linha(s) em ${pedidos} pedido(s) nos resultados carregados.${fim?'':' Há mais resultados.'}</p><div style="overflow:auto"><table><thead><tr><th>Pedido</th><th>Apelido / Projeto</th><th>P.C.</th><th>Nº item</th><th>Descrição</th><th>Cód. fabricante</th><th>DV</th><th>Solicitado</th><th>Recebido</th><th>Pendente</th><th>Situação</th><th></th></tr></thead><tbody>${encontrados.map(r=>`<tr><td>${esc(numero({numero:r.numero}))}</td><td>${esc(r.apelido||'Não informado')}</td><td>${esc(r.pc||'Não informado')}</td><td>${r.item}</td><td style="white-space:pre-wrap;min-width:220px">${esc(r.descricao)}</td><td>${esc(r.cod_fabricante)}</td><td>${esc(r.dv)}</td><td>${r.quantidade}</td><td>${r.recebido}</td><td>${r.pendente}</td><td>${esc(status[r.status]||r.status)}</td><td><button class="btn-secondary" type="button" data-item-pedido="${esc(r.pedido_id)}">Abrir pedido</button></td></tr>`).join('')}</tbody></table></div>${fim?'':'<button type="button" class="btn-secondary" id="pc-busca-item-mais">Carregar mais</button>'}`;
+      destino.querySelectorAll('[data-item-pedido]').forEach(b=>b.addEventListener('click',()=>executar(()=>detalhar(b.dataset.itemPedido))));
+      document.getElementById('pc-busca-item-mais')?.addEventListener('click',()=>buscar(false));
+    };
+    const buscar=async(nova)=>{
+      if(buscando)return;
+      if(nova){
+        termo=campo.value.trim();situacao=filtro.value;
+        if(!termo){campo.focus();showError('Informe nome, código do fabricante ou DV.');return;}
+        encontrados=[];proxima=0;fim=false;geracao++;
+      }
+      const token=geracao;
+      buscando=true;enviar.disabled=true;campo.disabled=true;filtro.disabled=true;
+      const mais=document.getElementById('pc-busca-item-mais');if(mais)mais.disabled=true;
+      if(nova)destino.textContent='Pesquisando itens...';
+      try{
+        const rows=await consulta(supabaseClient.rpc('sc_pesquisar_itens_pedidos',{p_termo:termo,p_status:situacao,p_offset:proxima,p_limite:100}));
+        if(token!==geracao||!destino.isConnected||state.page!=='pedidos')return;
+        const pagina=rows||[];const chaves=new Set(encontrados.map(r=>r.item_id));
+        encontrados.push(...pagina.filter(r=>!chaves.has(r.item_id)));
+        proxima+=pagina.length;fim=pagina.length<100;pintar();
+      }catch(e){
+        if(token===geracao&&destino.isConnected){destino.textContent='Não foi possível pesquisar. Confira se o SQL da pesquisa foi instalado e tente novamente.';showError(e.message);}
+      }finally{
+        buscando=false;enviar.disabled=false;campo.disabled=false;filtro.disabled=false;
+        const b=document.getElementById('pc-busca-item-mais');if(b)b.disabled=false;
+      }
+    };
+    form.addEventListener('submit',e=>{e.preventDefault();buscar(true);});
+    document.getElementById('pc-busca-item-limpar').addEventListener('click',()=>{
+      geracao++;encontrados=[];proxima=0;fim=false;campo.value='';filtro.value='';destino.replaceChildren();
+    });
+  }
+
   async function carregar(id){
     const p=await consulta(supabaseClient.from('sc_pedidos').select('*').eq('id',id).single());
     const itens=await consulta(supabaseClient.from('sc_pedido_itens').select('*').eq('pedido_id',id).order('item'));
